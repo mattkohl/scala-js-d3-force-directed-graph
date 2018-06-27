@@ -1,4 +1,4 @@
-package graph
+package v4graph
 
 import scala.scalajs.js
 
@@ -37,6 +37,6 @@ object Visualization {
 
   )
 
-  def mainV3(args: Array[String]): Unit = Graph(edges)
+  def main(args: Array[String]): Unit = Graph(edges)
 
 }

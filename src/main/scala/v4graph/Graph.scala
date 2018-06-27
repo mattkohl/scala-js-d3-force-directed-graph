@@ -1,25 +1,21 @@
-package graph
+package v4graph
 
-import org.scalajs.dom
+import d3v4._
 import org.scalajs.dom.window
-import org.singlespaced.d3js.Ops._
-import org.singlespaced.d3js
 
 import scala.scalajs.js
 
-case class GraphNode(label: String) extends d3js.forceModule.Node {
+case class GraphNode(label: String) extends SimulationNodeImpl {
   val id: Int = label.hashCode
   def toId(prefix: String = ""): String = s"$prefix$id"
   def translate: String = s"translate($x, $y)"
 }
-
-case class GraphLink(source: GraphNode, value: String, target: GraphNode) extends d3js.Link[GraphNode] {
+case class GraphLink(source: GraphNode, value: String, target: GraphNode) extends SimulationLinkImpl[GraphNode, GraphNode] {
   def getSiblings(others: js.Array[GraphLink]): js.Array[GraphLink] = others.filter { link =>
     link.source.id == source.id && link.target.id == target.id || link.source.id == target.id && link.target.id == source.id
   }
   def toId(prefix: String = ""): String = s"$prefix${source.id}-${value.replace(" ", "-").toLowerCase}-${target.id}"
 }
-
 case class Graph(links: js.Array[GraphLink]) {
 
   val nodes: js.Array[GraphNode] = links.flatMap{ link: GraphLink => js.Array(link.source, link.target) }.distinct
@@ -27,11 +23,10 @@ case class Graph(links: js.Array[GraphLink]) {
   val w: Double = window.innerWidth - 20
   val h: Double = window.innerHeight
 
-  val svg: d3js.Selection[dom.EventTarget] = d3js.d3.select("#graph")
+  val svg = d3.select("#graph")
     .append("svg:svg")
     .attr("width", w)
     .attr("height", h)
-    .style("z-index", -10)
     .attr("id", "svg")
 
   svg.append("svg:defs").selectAll("marker").data(js.Array("end"))
@@ -50,18 +45,13 @@ case class Graph(links: js.Array[GraphLink]) {
     .attr("d", "M0,-5L10,0L0,5")
     .attr("fill", "#ccc")
 
-  val force: d3js.forceModule.Force[GraphNode, GraphLink] = {
-    d3js.d3.layout.force[GraphNode, GraphLink]()
-      .charge(-500)
-      .friction(0.9)
-      .linkDistance(300)
-      .size((w, h))
-      .nodes(nodes)
-      .links(links)
-      .start()
-  }
+  val simulation = d3.forceSimulation()
+    .force("link", d3.forceLink())
+    .force("charge", d3.forceManyBody())
+    .force("center", d3.forceCenter(w/2, h/2))
+    .force("collide", d3.forceCenter())
 
-  val path: d3js.selection.Update[GraphLink] = svg.selectAll[GraphLink]("path.link").data(links)
+  val path = svg.selectAll[GraphLink]("path.link").data(links)
 
   path
     .enter()
@@ -70,7 +60,7 @@ case class Graph(links: js.Array[GraphLink]) {
     .attr("class", "link")
     .attr("marker-end", "url(#arrowhead)")
 
-  val pathInvis: d3js.selection.Update[GraphLink] = svg.selectAll[GraphLink]("path.invis").data(force.links)
+  val pathInvis = svg.selectAll[GraphLink]("path.invis").data(links)
 
   pathInvis
     .enter()
@@ -78,7 +68,7 @@ case class Graph(links: js.Array[GraphLink]) {
     .attr("id", (d: GraphLink) => d.toId("invis_"))
     .attr("class", "invis")
 
-  val pathLabel: d3js.selection.Update[GraphLink] = svg.selectAll[GraphLink](".pathLabel").data(force.links)
+  val pathLabel = svg.selectAll[GraphLink](".pathLabel").data(links)
 
   pathLabel
     .enter()
@@ -89,17 +79,15 @@ case class Graph(links: js.Array[GraphLink]) {
     .attr("startOffset", "50%")
     .attr("text-anchor", "middle")
     .attr("xlink:href", (d: GraphLink) => d.toId("#invis_"))
-    .style("fill", "#ccccc")
-    .style("font-size", 10)
     .text((d: GraphLink) => d.value)
 
-  val node: d3js.selection.Update[GraphNode] = svg.selectAll("g.node").data(force.nodes)
+  val node = svg.selectAll("g.node").data(nodes)
 
   node
     .enter()
     .append("g")
     .attr("class", "node")
-    .call(force.drag)
+    .call(d3.drag())
     .append("svg:circle")
     .attr("r", 10)
     .attr("id", (n: GraphNode) => n.toId())
@@ -113,15 +101,21 @@ case class Graph(links: js.Array[GraphLink]) {
     .attr("y", ".31em")
     .text((n: GraphNode) => n.label)
 
-  force.on("tick", (_: dom.Event) => {
-    path.attr("d", (d: GraphLink) => ArcPath(onLeft = true, d, d.getSiblings(force.links)).toString)
+  val ticked = () => {
+    path.attr("d", (d: GraphLink) => ArcPath(onLeft = true, d, d.getSiblings(links)).toString)
     pathInvis.attr("d", (d: GraphLink) => {
       val dsx = d.source.x.getOrElse(0.0)
       val dtx = d.target.x.getOrElse(0.0)
-      ArcPath(dsx < dtx, d, d.getSiblings(force.links)).toString
+      ArcPath(dsx < dtx, d, d.getSiblings(links)).toString
     })
     node.attr("transform", (n: GraphNode) => n.translate)
     ()
-  })
+  }
+
+  simulation
+    .on("tick", ticked)
+    .forceAs[Link[GraphNode, GraphLink]]("link").links(links)
+
+
 
 }
